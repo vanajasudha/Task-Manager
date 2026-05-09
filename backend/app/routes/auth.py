@@ -16,6 +16,7 @@ decorated endpoint.  FastAPI injects it automatically; no client-facing
 behaviour changes.
 """
 
+import asyncio
 import logging
 import re
 from datetime import timedelta
@@ -31,6 +32,7 @@ from app.schemas.user_schema import (
     ForgotPasswordRequest,
     ForgotPasswordResponse,
     GoogleAuthRequest,
+    GoogleAuthResponse,
     ResetPasswordRequest,
     Token,
     UserLogin,
@@ -248,11 +250,12 @@ async def reset_password(body: ResetPasswordRequest):
 
 @router.post(
     "/google",
-    response_model=Token,
+    response_model=GoogleAuthResponse,
     summary="Sign in or register with a Google account",
     responses={
         200: {"description": "JWT issued — user logged in or auto-registered"},
-        400: {"description": "Invalid token, unverified email, or non-Gmail address"},
+        400: {"description": "Unverified email or non-Gmail address"},
+        401: {"description": "Invalid or expired token, or wrong client ID"},
         503: {"description": "Could not reach Google's servers"},
     },
 )
@@ -260,23 +263,29 @@ async def reset_password(body: ResetPasswordRequest):
 async def google_auth(request: Request, body: GoogleAuthRequest):
     """
     Accept a Google OAuth2 **access token** from the frontend, verify it
-    against Google's userinfo endpoint, and return a TaskFlow JWT.
+    against Google's tokeninfo endpoint (validates GOOGLE_CLIENT_ID audience),
+    fetch the user profile from the userinfo endpoint, and return a TaskFlow JWT.
 
     **First-time users** are automatically registered with role=``user``.
-    No allowlist check is performed — the Google account itself proves
-    the email is real and belongs to the user.
+    No allowlist check — Google's verified email proves the address is real.
 
-    **Returning users** are logged in; their profile picture is refreshed
-    if it has changed.
+    **Returning users** are logged in; profile picture is refreshed if changed.
 
     Gmail restriction (``@gmail.com``) still applies.
     """
-    # ── Verify with Google ────────────────────────────────────────────────────
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(
-                "https://www.googleapis.com/oauth2/v3/userinfo",
-                headers={"Authorization": f"Bearer {body.access_token}"},
+            tokeninfo_resp, userinfo_resp = await asyncio.gather(
+                # Validates the token and lets us check the audience (GOOGLE_CLIENT_ID)
+                client.get(
+                    "https://oauth2.googleapis.com/tokeninfo",
+                    params={"access_token": body.access_token},
+                ),
+                # Returns email, name, picture
+                client.get(
+                    "https://www.googleapis.com/oauth2/v3/userinfo",
+                    headers={"Authorization": f"Bearer {body.access_token}"},
+                ),
             )
     except httpx.RequestError:
         raise HTTPException(
@@ -284,13 +293,24 @@ async def google_auth(request: Request, body: GoogleAuthRequest):
             detail="Could not reach Google's servers. Please try again.",
         )
 
-    if resp.status_code != 200:
+    if tokeninfo_resp.status_code != 200 or userinfo_resp.status_code != 200:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired Google token.",
         )
 
-    userinfo = resp.json()
+    tokeninfo = tokeninfo_resp.json()
+    userinfo  = userinfo_resp.json()
+
+    # ── Validate GOOGLE_CLIENT_ID ─────────────────────────────────────────────
+    if settings.GOOGLE_CLIENT_ID:
+        token_audience = tokeninfo.get("aud") or tokeninfo.get("issued_to", "")
+        if token_audience != settings.GOOGLE_CLIENT_ID:
+            logger.warning("Google token audience mismatch: got %s", token_audience)
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token was not issued for this application.",
+            )
 
     # ── Validate claims ───────────────────────────────────────────────────────
     if not userinfo.get("email_verified"):
@@ -319,8 +339,6 @@ async def google_auth(request: Request, body: GoogleAuthRequest):
     user = await users_collection.find_one({"email": email})
 
     if user is None:
-        # Auto-generate a username from the email prefix.
-        # Strip everything that isn't alphanumeric/underscore, ensure 3+ chars.
         raw = re.sub(r"[^a-z0-9_]", "", email.split("@")[0].lower())[:40]
         if len(raw) < 3:
             raw = raw.ljust(3, "0")
@@ -332,18 +350,17 @@ async def google_auth(request: Request, body: GoogleAuthRequest):
             suffix  += 1
 
         doc = {
-            "username":      username,
-            "email":         email,
-            "hashed_password": None,    # no password — Google is the identity provider
-            "role":          "user",
-            "auth_provider": "google",
-            "picture":       picture,
+            "username":        username,
+            "email":           email,
+            "hashed_password": None,
+            "role":            "user",
+            "auth_provider":   "google",
+            "picture":         picture,
         }
         result = await users_collection.insert_one(doc)
         user   = await users_collection.find_one({"_id": result.inserted_id})
         logger.info("New Google user auto-registered: %s (%s)", email, username)
     else:
-        # Refresh picture / backfill auth_provider if this is a legacy account
         updates: dict = {}
         if picture and user.get("picture") != picture:
             updates["picture"] = picture
@@ -357,4 +374,9 @@ async def google_auth(request: Request, body: GoogleAuthRequest):
         data={"sub": user["email"], "role": user.get("role", "user")}
     )
     logger.info("Google user logged in: %s", email)
-    return {"access_token": token, "token_type": "bearer"}
+    return {
+        "access_token": token,
+        "token_type":   "bearer",
+        "role":         user.get("role", "user"),
+        "user":         user_helper(user),
+    }

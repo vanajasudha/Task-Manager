@@ -148,5 +148,13 @@ class ResetPasswordRequest(BaseModel):
 # ── Google OAuth ──────────────────────────────────────────────────────────────
 
 class GoogleAuthRequest(BaseModel):
-    """Request body for POST /auth/google."""
-    access_token: str = Field(..., description="Google OAuth2 access token from the frontend")
+    """Request body for POST /auth/google — ID token from @react-oauth/google's GoogleLogin component."""
+    credential: str = Field(..., description="Google ID token credential returned by the GoogleLogin component")
+
+
+class GoogleAuthResponse(BaseModel):
+    """Response from POST /auth/google — JWT + full user profile."""
+    access_token: str
+    token_type:   str = "bearer"
+    role:         str
+    user:         UserResponse
