@@ -62,7 +62,8 @@ export default function Register() {
       login(userData, access_token)
       navigate('/dashboard', { replace: true })
     } catch (err) {
-      setError(err.response?.data?.detail || 'Google sign-in failed. Please try again.')
+      const detail = err.response?.data?.detail
+      setError(typeof detail === 'string' ? detail : 'Google sign-in failed. Please try again.')
     } finally {
       setGoogleLoading(false)
     }
