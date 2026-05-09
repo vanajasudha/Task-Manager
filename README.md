@@ -358,39 +358,6 @@ All protected endpoints require: `Authorization: Bearer <token>`
 | `GET` | `/` | None | Liveness probe — confirms process is alive |
 | `GET` | `/health` | None | Readiness probe — confirms process and DB connectivity |
 
----
-
-## 📸 Screenshots
-
-> Add screenshots by placing images in `docs/screenshots/` and uncommenting the `img` tags below.
-
-### Landing Page
-The public-facing marketing page explains TaskFlow before asking users to sign up. Sections: Hero → What is TaskFlow → How it Works → Features → Dashboard Preview → Ready to Try. Responsive navbar with hamburger menu on mobile.
-
-<!-- ![Landing Page](docs/screenshots/landing.png) -->
-
-### User Dashboard
-Greeting hero card with live completion progress bar. Four stat cards (Total / Todo / In Progress / Done). Task grid with colour-coded priority cards, drag-and-drop status zones, and a filter/search/sort bar.
-
-<!-- ![Dashboard](docs/screenshots/dashboard.png) -->
-
-### Analytics View
-Four Recharts visualisations: status distribution bar, priority breakdown, 7-day activity chart, and 8-week productivity trend. Toggled from the dashboard header.
-
-<!-- ![Analytics](docs/screenshots/analytics.png) -->
-
-### Task History Tab
-Linear list of completed tasks with priority dot, task title, priority badge, Done badge, completion date, and "X days ago" label. Accessed via the My Tasks / History tab strip.
-
-<!-- ![Task History](docs/screenshots/history.png) -->
-
-### Admin Panel
-Platform statistics (4 primary + 3 secondary stat cards), task completion progress bar, Task Overview table (Task / Owner / Priority / Status / Created), User Management table (promote / demote / delete), and Allowed Registrations section with Gmail allowlist management.
-
-<!-- ![Admin Panel](docs/screenshots/admin.png) -->
-
----
-
 ## 🔒 Security
 
 ### Authentication & Passwords
