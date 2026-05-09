@@ -26,7 +26,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from jose import ExpiredSignatureError, JWTError, jwt
 
 from app.config import settings
-from app.database import allowed_emails_collection, users_collection
+from app.database import users_collection
 from app.models.user_model import user_helper
 from app.schemas.user_schema import (
     ForgotPasswordRequest,
@@ -77,13 +77,6 @@ async def register(request: Request, user_data: UserRegister):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Only Gmail addresses (@gmail.com) are allowed to register.",
-        )
-
-    # Check allowlist — only pre-approved emails may register
-    if not await allowed_emails_collection.find_one({"email": user_data.email}):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="This email is not authorised to register. Please contact an administrator.",
         )
 
     if await users_collection.find_one({"email": user_data.email}):
