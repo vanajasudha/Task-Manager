@@ -13,7 +13,7 @@
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat-square&logo=docker&logoColor=white)](https://docker.com/)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind-3.4-38BDF8?style=flat-square&logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
 
-*A production-grade task management platform built with async FastAPI, React 18, and MongoDB — featuring JWT authentication, role-based access control, real-time analytics, and a fully responsive UI.*
+*A production-grade task management platform built with async FastAPI, React 18, and MongoDB — featuring JWT authentication, Google OAuth, role-based access control, real-time analytics, and a fully responsive UI.*
 
 [Features](#-features) · [Architecture](#-architecture) · [API Reference](#-api-reference) · [Setup](#-local-development-setup) · [Deployment](#-deployment)
 
@@ -30,14 +30,13 @@
 5. [Authentication Flow](#-authentication-flow)
 6. [Role-Based Access Control](#-role-based-access-control)
 7. [API Reference](#-api-reference)
-8. [Screenshots](#-screenshots)
-9. [Security](#-security)
-10. [Scalability](#-scalability)
-11. [Folder Structure](#-folder-structure)
-12. [Local Development Setup](#-local-development-setup)
-13. [Deployment](#-deployment)
-14. [Example API Responses](#-example-api-responses)
-15. [Future Improvements](#-future-improvements)
+8. [Security](#-security)
+9. [Scalability](#-scalability)
+10. [Folder Structure](#-folder-structure)
+11. [Local Development Setup](#-local-development-setup)
+12. [Deployment](#-deployment)
+13. [Example API Responses](#-example-api-responses)
+14. [Future Improvements](#-future-improvements)
 
 ---
 
@@ -63,6 +62,7 @@ The application is designed to be evaluated on **code quality, system design, se
 | Feature | Details |
 |---|---|
 | **Secure Authentication** | Register / login with JWT Bearer tokens; remember-me with localStorage vs. sessionStorage |
+| **Google OAuth** | Sign in with any real Google account using one click — no password required; auto-registers first-time users |
 | **Task CRUD** | Create, read, update, delete tasks with title, description, priority, status, and due date |
 | **Smart Filtering** | Filter by status (Todo / In Progress / Done) and priority (Low / Medium / High) |
 | **Full-text Search** | Debounced search input (300 ms delay) to minimise unnecessary API calls |
@@ -111,6 +111,7 @@ The application is designed to be evaluated on **code quality, system design, se
 | Validation | **Pydantic v2** | — | Request/response schemas and field validators |
 | Config | **pydantic-settings** | — | Typed environment variable management |
 | Rate Limiting | **slowapi** | — | Per-route request throttling by client IP |
+| HTTP Client | **httpx** | 0.27 | Async HTTP calls to Google's userinfo endpoint |
 | Containerisation | **Docker** | — | Multi-stage production image |
 
 ### Frontend
@@ -124,6 +125,7 @@ The application is designed to be evaluated on **code quality, system design, se
 | Charts | **Recharts** | 3.8 | Analytics visualisations |
 | Styling | **Tailwind CSS** | 3.4 | Utility-first responsive design |
 | Build Tool | **Vite** | 5.3 | Fast HMR dev server and production bundler |
+| OAuth | **@react-oauth/google** | — | Google OAuth2 implicit flow with custom-styled button |
 | State | **React Context API** | — | Auth state management (no external store needed) |
 
 ---
@@ -233,6 +235,30 @@ The application is designed to be evaluated on **code quality, system design, se
   6. Return UserResponse
 
 
+  GOOGLE OAUTH FLOW
+  ─────────────────
+  Browser (useGoogleLogin)
+       │  access_token from Google
+       ▼
+  POST /auth/google  { "access_token": "..." }
+       │
+       ▼
+  1. httpx GET https://www.googleapis.com/oauth2/v3/userinfo
+     (Bearer access_token)
+       │
+       ▼
+  2. Validate email_verified = true
+     Validate @gmail.com domain
+       │
+       ├─ New user ──► auto-create account (no password, auth_provider="google")
+       │               username derived from email prefix
+       │
+       └─ Returning user ──► refresh profile picture if changed
+       │
+       ▼
+  3. Sign TaskFlow JWT → return { access_token, token_type }
+
+
   AUTHENTICATED REQUEST
   ─────────────────────
   Authorization: Bearer <JWT>
@@ -311,6 +337,7 @@ All protected endpoints require: `Authorization: Bearer <token>`
 |--------|----------|------|-----------|-------------|
 | `POST` | `/auth/register` | None | 5 / min | Register a new Gmail account |
 | `POST` | `/auth/login` | None | 10 / min | Login and receive JWT |
+| `POST` | `/auth/google` | None | 20 / min | Sign in or register via Google OAuth (returns TaskFlow JWT) |
 | `GET` | `/auth/me` | User | — | Get the authenticated user's profile |
 | `POST` | `/auth/forgot-password` | None | 5 / min | Request a password-reset token |
 | `POST` | `/auth/reset-password` | None | — | Reset password using the reset token |
@@ -537,7 +564,8 @@ Start the frontend in a separate terminal:
 
 ```bash
 cd frontend
-cp .env.example .env   # defaults work with the Docker API
+cp .env.example .env
+# Set VITE_GOOGLE_CLIENT_ID in frontend/.env
 npm install
 npm run dev
 ```
@@ -569,6 +597,7 @@ Edit `backend/.env`:
 # ── Required ──────────────────────────────────────────
 MONGO_URI=mongodb://localhost:27017
 JWT_SECRET_KEY=change-this-to-a-random-secret
+GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
 
 # ── Optional (defaults shown) ─────────────────────────
 MONGO_DB_NAME=taskflow
@@ -590,8 +619,12 @@ uvicorn app.main:app --reload --port 8000
 cd frontend
 npm install
 cp .env.example .env
+# Edit frontend/.env and set VITE_GOOGLE_CLIENT_ID to your Google OAuth Client ID
+# (must match GOOGLE_CLIENT_ID in backend/.env)
 npm run dev
 ```
+
+> **Google OAuth setup:** In [Google Cloud Console](https://console.cloud.google.com/) → APIs & Services → Credentials, create an OAuth 2.0 Client ID (Web application). Add `http://localhost:5173` as an Authorised JavaScript origin. The same Client ID goes in both `backend/.env` (`GOOGLE_CLIENT_ID`) and `frontend/.env` (`VITE_GOOGLE_CLIENT_ID`).
 
 ---
 
@@ -673,7 +706,8 @@ vercel --prod
 
 Set in Vercel dashboard:
 ```
-VITE_API_BASE_URL = https://your-api-domain.com/api/v1
+VITE_API_BASE_URL        = https://your-api-domain.com/api/v1
+VITE_GOOGLE_CLIENT_ID    = your-client-id.apps.googleusercontent.com
 ```
 
 Create `frontend/vercel.json` for client-side routing:
@@ -715,6 +749,15 @@ The application's lifespan handler calls `create_indexes()` on every startup, en
 ```json
 {
   "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyQGdtYWlsLmNvbSIsInJvbGUiOiJ1c2VyIiwiZXhwIjoxNzE3MDAwMDAwfQ.abc123",
+  "token_type": "bearer"
+}
+```
+
+### `POST /api/v1/auth/google` — Success (new or returning user)
+
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
   "token_type": "bearer"
 }
 ```
@@ -825,7 +868,9 @@ The application's lifespan handler calls `create_indexes()` on every startup, en
   "id": "6657b1a0b3e4f00012ab1234",
   "username": "johndoe",
   "email": "johndoe@gmail.com",
-  "role": "user"
+  "role": "user",
+  "picture": "https://lh3.googleusercontent.com/a/...",
+  "auth_provider": "google"
 }
 ```
 
@@ -898,7 +943,7 @@ This project was submitted as part of a backend internship assignment.
 
 <div align="center">
 
-**Built with FastAPI · React 18 · MongoDB · Docker**
+**Built with FastAPI · React 18 · MongoDB · Google OAuth · Docker**
 
 *Designed and developed as a backend internship assignment demonstrating*  
 *production-grade API design, async Python, and modern React development.*
