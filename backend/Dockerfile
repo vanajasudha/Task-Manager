@@ -36,7 +36,8 @@ FROM python:3.13-slim AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PATH="/venv/bin:$PATH"
+    PATH="/venv/bin:$PATH" \
+    PYTHONPATH=/app
 
 WORKDIR /app
 

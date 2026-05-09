@@ -56,6 +56,11 @@ services:
       - key: CORS_ORIGINS
         sync: false          # set manually in Render dashboard
 
+      # ── Google OAuth ──────────────────────────────────────────────────────
+      # Get from: Google Cloud Console → APIs & Services → Credentials
+      - key: GOOGLE_CLIENT_ID
+        sync: false          # set manually in Render dashboard
+
       # ── Rate limiting ─────────────────────────────────────────────────────
       - key: RATE_LIMIT_DEFAULT
         value: "60/minute"
