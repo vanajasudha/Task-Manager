@@ -1,0 +1,22 @@
+# ── Web framework ─────────────────────────────────────────────────────────────
+fastapi==0.136.1
+uvicorn[standard]==0.35.0        # [standard] adds uvloop + httptools for perf
+
+# ── Database ──────────────────────────────────────────────────────────────────
+motor==3.7.1
+pymongo==4.14.1
+
+# ── Authentication ────────────────────────────────────────────────────────────
+python-jose[cryptography]==3.5.0 # [cryptography] uses rust backend for speed
+passlib[bcrypt]==1.7.4
+bcrypt==4.3.0
+
+# ── Validation / serialisation ────────────────────────────────────────────────
+pydantic[email]==2.11.7
+pydantic-settings==2.3.4         # typed env-var config (replaces raw os.getenv)
+
+# ── Rate limiting ─────────────────────────────────────────────────────────────
+slowapi==0.1.9                   # fastapi-native rate limiting (wraps `limits`)
+
+# ── Configuration ─────────────────────────────────────────────────────────────
+python-dotenv==1.1.1             # still used by pydantic-settings under the hood

@@ -1,0 +1,65 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# TaskFlow — local development stack
+#
+# Services:
+#   api   — FastAPI application with hot-reload
+#   mongo — MongoDB 7 (local, no auth — dev only)
+#
+# Usage:
+#   docker compose up          # start both services
+#   docker compose up api      # start only the API (uses an external Mongo)
+#   docker compose down -v     # stop and delete volumes
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── FastAPI application ─────────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      target: builder        # use the builder stage so devDeps are available
+    ports:
+      - "8000:8000"
+    environment:
+      APP_ENV: development
+      DEBUG: "true"
+      MONGO_URI: mongodb://mongo:27017
+      MONGO_DB_NAME: task_management_db
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-secret-change-in-production}
+      JWT_ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRE_MINUTES: "60"
+      CORS_ORIGINS: "http://localhost:5173,http://localhost:3000"
+      RATE_LIMIT_DEFAULT: "120/minute"  # more relaxed during development
+      RATE_LIMIT_AUTH: "20/minute"
+    volumes:
+      # Mount source code for live-reload (dev only — never do this in prod)
+      - .:/app
+    command: >
+      uvicorn app.main:app
+        --host 0.0.0.0
+        --port 8000
+        --reload
+        --reload-dir app
+    depends_on:
+      mongo:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── MongoDB ─────────────────────────────────────────────────────────────────
+  mongo:
+    image: mongo:7
+    ports:
+      - "27017:27017"          # expose for MongoDB Compass / mongosh
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  mongo_data:
+    driver: local

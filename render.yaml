@@ -1,0 +1,64 @@
+# render.yaml — Render.com infrastructure-as-code
+# Docs: https://render.com/docs/yaml-spec
+#
+# Deploy: connect your GitHub repo to Render, and this file is auto-detected.
+
+services:
+  - type: web
+    name: taskflow-api
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+
+    # Render free tier — upgrade to "starter" for always-on
+    plan: free
+
+    # Health check — Render will restart the service if this fails
+    healthCheckPath: /health
+
+    envVars:
+      # ── App ──────────────────────────────────────────────────────────────
+      - key: APP_ENV
+        value: production
+
+      - key: APP_NAME
+        value: TaskFlow API
+
+      - key: APP_VERSION
+        value: 1.0.0
+
+      - key: DEBUG
+        value: false
+
+      # ── MongoDB Atlas ─────────────────────────────────────────────────────
+      # Set this in Render dashboard → Environment → MONGO_URI
+      - key: MONGO_URI
+        sync: false          # sync: false = secret, set manually in dashboard
+
+      - key: MONGO_DB_NAME
+        value: task_management_db
+
+      # ── JWT ───────────────────────────────────────────────────────────────
+      # Render can auto-generate a secure random value with generateValue: true
+      - key: JWT_SECRET_KEY
+        generateValue: true  # remove this line if you want to set it manually
+
+      - key: JWT_ALGORITHM
+        value: HS256
+
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "60"
+
+      # ── CORS ──────────────────────────────────────────────────────────────
+      # Set to your Vercel frontend URL after deploying the frontend.
+      # Comma-separated for multiple origins:
+      #   https://taskflow.vercel.app,https://www.yourdomain.com
+      - key: CORS_ORIGINS
+        sync: false          # set manually in Render dashboard
+
+      # ── Rate limiting ─────────────────────────────────────────────────────
+      - key: RATE_LIMIT_DEFAULT
+        value: "60/minute"
+
+      - key: RATE_LIMIT_AUTH
+        value: "10/minute"

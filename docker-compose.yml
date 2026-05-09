@@ -1,0 +1,49 @@
+version: '3.9'
+
+# Local full-stack development with Docker
+# Usage:
+#   cp backend/.env.example backend/.env   # fill in MONGO_URI and JWT_SECRET_KEY
+#   docker compose up --build
+
+services:
+
+  # ── FastAPI backend ───────────────────────────────────────────────────────
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./backend/.env
+    environment:
+      # Override APP_ENV so Swagger UI (/docs) is available locally
+      APP_ENV: development
+    volumes:
+      # Hot-reload: mount source so code changes reflect without rebuild
+      - ./backend/app:/app/app
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  # ── React frontend (dev server) ───────────────────────────────────────────
+  # Only needed for full-stack local testing. For production use Vercel.
+  frontend:
+    image: node:20-alpine
+    working_dir: /app
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "5173:5173"
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      # Point directly at the API container (bypasses Vite proxy)
+      VITE_API_BASE_URL: http://localhost:8000/api/v1
