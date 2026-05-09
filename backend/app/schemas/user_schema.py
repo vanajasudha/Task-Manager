@@ -74,10 +74,12 @@ class UserLogin(BaseModel):
 
 class UserResponse(BaseModel):
     """Returned by register / login / /auth/me and admin endpoints."""
-    id:       str
-    username: str
-    email:    str
-    role:     str
+    id:            str
+    username:      str
+    email:         str
+    role:          str
+    picture:       Optional[str] = None   # Google profile photo URL (OAuth users only)
+    auth_provider: Optional[str] = None   # "local" | "google"
 
 
 class Token(BaseModel):
@@ -141,3 +143,10 @@ class ResetPasswordRequest(BaseModel):
         if len(v) < 6:
             raise ValueError("Password must be at least 6 characters.")
         return v
+
+
+# ── Google OAuth ──────────────────────────────────────────────────────────────
+
+class GoogleAuthRequest(BaseModel):
+    """Request body for POST /auth/google."""
+    access_token: str = Field(..., description="Google OAuth2 access token from the frontend")

@@ -41,6 +41,10 @@ class Settings(BaseSettings):
         "http://localhost:3000",
     ]
 
+    # ── Google OAuth ─────────────────────────────────────────────────────────
+    # From Google Cloud Console → APIs & Services → Credentials → OAuth 2.0 Client IDs
+    GOOGLE_CLIENT_ID: str = ""
+
     # ── Rate limiting (slowapi / limits notation) ─────────────────────────────
     RATE_LIMIT_DEFAULT: str = "60/minute"   # applied to all routes
     RATE_LIMIT_AUTH: str = "10/minute"      # stricter limit on login / register

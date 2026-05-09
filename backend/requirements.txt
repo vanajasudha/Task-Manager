@@ -18,5 +18,8 @@ pydantic-settings==2.3.4         # typed env-var config (replaces raw os.getenv)
 # ── Rate limiting ─────────────────────────────────────────────────────────────
 slowapi==0.1.9                   # fastapi-native rate limiting (wraps `limits`)
 
+# ── Google OAuth ─────────────────────────────────────────────────────────────
+httpx==0.27.0                    # async HTTP client — used to call Google's userinfo endpoint
+
 # ── Configuration ─────────────────────────────────────────────────────────────
 python-dotenv==1.1.1             # still used by pydantic-settings under the hood

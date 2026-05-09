@@ -17,8 +17,10 @@ behaviour changes.
 """
 
 import logging
+import re
 from datetime import timedelta
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from jose import ExpiredSignatureError, JWTError, jwt
 
@@ -28,6 +30,7 @@ from app.models.user_model import user_helper
 from app.schemas.user_schema import (
     ForgotPasswordRequest,
     ForgotPasswordResponse,
+    GoogleAuthRequest,
     ResetPasswordRequest,
     Token,
     UserLogin,
@@ -120,7 +123,8 @@ async def login(request: Request, credentials: UserLogin):
 
     # Deliberate: use the same error message whether the email exists or not
     # to prevent user-enumeration attacks.
-    if not user or not verify_password(credentials.password, user["hashed_password"]):
+    # OAuth-only users have hashed_password=None → treat as wrong password.
+    if not user or not user.get("hashed_password") or not verify_password(credentials.password, user["hashed_password"]):
         logger.warning("Failed login attempt for email: %s", credentials.email)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -238,3 +242,119 @@ async def reset_password(body: ResetPasswordRequest):
     )
     logger.info("Password reset completed for: %s", email)
     return {"message": "Password updated successfully."}
+
+
+# ── Google OAuth ──────────────────────────────────────────────────────────────
+
+@router.post(
+    "/google",
+    response_model=Token,
+    summary="Sign in or register with a Google account",
+    responses={
+        200: {"description": "JWT issued — user logged in or auto-registered"},
+        400: {"description": "Invalid token, unverified email, or non-Gmail address"},
+        503: {"description": "Could not reach Google's servers"},
+    },
+)
+@limiter.limit("20/minute")
+async def google_auth(request: Request, body: GoogleAuthRequest):
+    """
+    Accept a Google OAuth2 **access token** from the frontend, verify it
+    against Google's userinfo endpoint, and return a TaskFlow JWT.
+
+    **First-time users** are automatically registered with role=``user``.
+    No allowlist check is performed — the Google account itself proves
+    the email is real and belongs to the user.
+
+    **Returning users** are logged in; their profile picture is refreshed
+    if it has changed.
+
+    Gmail restriction (``@gmail.com``) still applies.
+    """
+    # ── Verify with Google ────────────────────────────────────────────────────
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                "https://www.googleapis.com/oauth2/v3/userinfo",
+                headers={"Authorization": f"Bearer {body.access_token}"},
+            )
+    except httpx.RequestError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Could not reach Google's servers. Please try again.",
+        )
+
+    if resp.status_code != 200:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired Google token.",
+        )
+
+    userinfo = resp.json()
+
+    # ── Validate claims ───────────────────────────────────────────────────────
+    if not userinfo.get("email_verified"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Your Google account's email address is not verified.",
+        )
+
+    email: str = userinfo.get("email", "").lower().strip()
+    if not email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No email address returned by Google.",
+        )
+
+    if not email.endswith("@gmail.com"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only Gmail addresses (@gmail.com) are allowed.",
+        )
+
+    picture: str = userinfo.get("picture", "")
+    name: str    = userinfo.get("name", "")
+
+    # ── Find or create user ───────────────────────────────────────────────────
+    user = await users_collection.find_one({"email": email})
+
+    if user is None:
+        # Auto-generate a username from the email prefix.
+        # Strip everything that isn't alphanumeric/underscore, ensure 3+ chars.
+        raw = re.sub(r"[^a-z0-9_]", "", email.split("@")[0].lower())[:40]
+        if len(raw) < 3:
+            raw = raw.ljust(3, "0")
+
+        username = raw
+        suffix   = 1
+        while await users_collection.find_one({"username": username}):
+            username = f"{raw}{suffix}"
+            suffix  += 1
+
+        doc = {
+            "username":      username,
+            "email":         email,
+            "hashed_password": None,    # no password — Google is the identity provider
+            "role":          "user",
+            "auth_provider": "google",
+            "picture":       picture,
+        }
+        result = await users_collection.insert_one(doc)
+        user   = await users_collection.find_one({"_id": result.inserted_id})
+        logger.info("New Google user auto-registered: %s (%s)", email, username)
+    else:
+        # Refresh picture / backfill auth_provider if this is a legacy account
+        updates: dict = {}
+        if picture and user.get("picture") != picture:
+            updates["picture"] = picture
+        if not user.get("auth_provider"):
+            updates["auth_provider"] = "google"
+        if updates:
+            await users_collection.update_one({"_id": user["_id"]}, {"$set": updates})
+            user = {**user, **updates}
+
+    token = create_access_token(
+        data={"sub": user["email"], "role": user.get("role", "user")}
+    )
+    logger.info("Google user logged in: %s", email)
+    return {"access_token": token, "token_type": "bearer"}
